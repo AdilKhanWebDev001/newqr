@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Code Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f9;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    
+    .container {
+      max-width: 600px;
+      margin: 50px auto;
+      text-align: center;
+    }
+    
+    textarea {
+      width: 100%;
+      height: 150px;
+      margin: 10px 0;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    
+    button {
+      padding: 10px 20px;
+      margin: 10px 0;
+      font-size: 16px;
+      border: none;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    
+    button:disabled {
+      background-color: #aaa;
+    }
+    
+    #progress, #timeRemaining {
+      font-size: 18px;
+      color: #007bff;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>QR Code Generator</h1>
+    <textarea id="dataInput" placeholder="Enter URLs or text (one per line, up to 10000)"></textarea>
+    <button id="generateBtn">Generate QR Codes</button>
+    <p id="progress" style="display:none;">Generating QR Codes...</p>
+    <p id="timeRemaining" style="display:none;">Estimated Time Remaining: <span id="timeValue"></span> seconds</p>
+    <button id="downloadPdfBtn" style="display:none;">Download All QR Codes as PDF</button>
+  </div>
+  <script>
+    document.getElementById('generateBtn').addEventListener('click', async function() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [24, 24] // 24mm height, square page
+      });
+
+      const data = document.getElementById('dataInput').value.split('\n').map(line => line.trim()).filter(line => line !== '');
+      const totalCodes = data.length;
+      const batchSize = 100;
+      const totalBatches = Math.ceil(totalCodes / batchSize);
+      const estimatedTimePerBatch = 2; // seconds per batch
+
+      if (totalCodes === 0) {
+        alert('Please enter some URLs or text!');
+        return;
+      }
+
+      const progressText = document.getElementById('progress');
+      const timeRemaining = document.getElementById('timeRemaining');
+      const timeValue = document.getElementById('timeValue');
+      const downloadPdfBtn = document.getElementById('downloadPdfBtn');
+
+      progressText.style.display = 'block';
+      timeRemaining.style.display = 'block';
+      downloadPdfBtn.style.display = 'none';
+
+      let remainingTime = totalBatches * estimatedTimePerBatch;
+      timeValue.textContent = remainingTime;
+
+      const pdfImageDataUrls = [];
+
+      for (let i = 0; i < totalBatches; i++) {
+        const batchData = data.slice(i * batchSize, (i + 1) * batchSize);
+        await generateBatch(batchData, pdfImageDataUrls);
+        remainingTime -= estimatedTimePerBatch;
+        timeValue.textContent = remainingTime > 0 ? remainingTime : 0;
+        progressText.textContent = `Generating QR Codes... Batch ${i + 1} of ${totalBatches}`;
+      }
+
+      progressText.textContent = 'QR Codes Generated! Click to download as PDF.';
+      timeRemaining.style.display = 'none';
+      downloadPdfBtn.style.display = 'block';
+
+      downloadPdfBtn.addEventListener('click', function() {
+        generatePDF(pdfImageDataUrls, doc);
+      });
+    });
+
+    async function generateBatch(batchData, pdfImageDataUrls) {
+      for (const item of batchData) {
+        if (item) {
+          const qrCodeURL = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(item)}`;
+          const response = await fetch(qrCodeURL);
+          const blob = await response.blob();
+          const qrCodeImageDataUrl = await blobToBase64(blob);
+          pdfImageDataUrls.push(qrCodeImageDataUrl);
+        }
+      }
+    }
+
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function generatePDF(pdfImageDataUrls, doc) {
+      const imgWidth = 22; // QR code width 22mm
+      const imgHeight = 22; // QR code height 22mm
+      const margin = 1; // 1mm margin to fit within the 24mm page height
+
+      pdfImageDataUrls.forEach((imgDataUrl, index) => {
+        doc.addImage(imgDataUrl, 'PNG', margin, margin, imgWidth, imgHeight);
+        if (index !== pdfImageDataUrls.length - 1) {
+          doc.addPage(); // New page for each QR code
+        }
+      });
+
+      doc.save('qrcodes.pdf');
+    }
+  </script>
+</body>
+</html>
